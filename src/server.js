@@ -1,49 +1,59 @@
 // mengimpor dotenv dan menjalankan konfigurasinya
-require('dotenv').config();
+require("dotenv").config();
 
-const Hapi = require('@hapi/hapi');
-const Jwt = require('@hapi/jwt');
+const Hapi = require("@hapi/hapi");
+const Jwt = require("@hapi/jwt");
+const path = require("path");
+const Inert = require("@hapi/inert");
 
 // notes
-const notes = require('./api/notes');
-const NotesService = require('./services/postgres/NotesService');
-const NotesValidator = require('./validator/notes');
+const notes = require("./api/notes");
+const NotesService = require("./services/postgres/NotesService");
+const NotesValidator = require("./validator/notes");
 
 // users
-const users = require('./api/users');
-const UsersService = require('./services/postgres/UsersService');
-const UsersValidator = require('./validator/users');
+const users = require("./api/users");
+const UsersService = require("./services/postgres/UsersService");
+const UsersValidator = require("./validator/users");
 
 // authentications
-const authentications = require('./api/authentications');
-const AuthenticationsService = require('./services/postgres/AuthenticationsService');
-const TokenManager = require('./tokenize/TokenManager');
-const AuthenticationsValidator = require('./validator/authentications');
+const authentications = require("./api/authentications");
+const AuthenticationsService = require("./services/postgres/AuthenticationsService");
+const TokenManager = require("./tokenize/TokenManager");
+const AuthenticationsValidator = require("./validator/authentications");
 
 // collaborations
-const collaborations = require('./api/collaborations');
-const CollaborationsService = require('./services/postgres/CollaborationsService');
-const CollaborationsValidator = require('./validator/collaborations');
+const collaborations = require("./api/collaborations");
+const CollaborationsService = require("./services/postgres/CollaborationsService");
+const CollaborationsValidator = require("./validator/collaborations");
 
 // Exports
-const _exports = require('./api/exports');
-const ProducerService = require('./services/rabbitmq/ProducerService');
-const ExportsValidator = require('./validator/exports');
+const _exports = require("./api/exports");
+const ProducerService = require("./services/rabbitmq/ProducerService");
+const ExportsValidator = require("./validator/exports");
 
-const ClientError = require('./exceptions/ClientError');
+// uploads
+const uploads = require("./api/uploads");
+const StorageService = require("./services/storage/StorageService");
+const UploadsValidator = require("./validator/uploads");
+
+const ClientError = require("./exceptions/ClientError");
 
 const init = async () => {
   const collaborationsService = new CollaborationsService();
   const notesService = new NotesService(collaborationsService);
   const usersService = new UsersService();
   const authenticationsService = new AuthenticationsService();
+  const storageService = new StorageService(
+    path.resolve(__dirname, "api/uploads/file/images")
+  );
 
   const server = Hapi.server({
     port: process.env.PORT,
     host: process.env.HOST,
     routes: {
       cors: {
-        origin: ['*'],
+        origin: ["*"],
       },
     },
   });
@@ -52,9 +62,12 @@ const init = async () => {
     {
       plugin: Jwt,
     },
+    {
+      plugin: Inert,
+    },
   ]);
 
-  server.auth.strategy('notesapp_jwt', 'jwt', {
+  server.auth.strategy("notesapp_jwt", "jwt", {
     keys: process.env.ACCESS_TOKEN_KEY,
     verify: {
       aud: false,
@@ -109,9 +122,16 @@ const init = async () => {
         validator: ExportsValidator,
       },
     },
+    {
+      plugin: uploads,
+      options: {
+        service: storageService,
+        validator: UploadsValidator,
+      },
+    },
   ]);
 
-  server.ext('onPreResponse', (request, h) => {
+  server.ext("onPreResponse", (request, h) => {
     // mendapatkan konteks response dari request
     const { response } = request;
 
@@ -119,7 +139,7 @@ const init = async () => {
       // penanganan error secara internal.
       if (response instanceof ClientError) {
         const newResponse = h.response({
-          status: 'fail',
+          status: "fail",
           message: response.message,
         });
         newResponse.code(response.statusCode);
@@ -133,8 +153,8 @@ const init = async () => {
 
       // penanganan error sesuai kebutuhan
       const newResponse = h.response({
-        status: 'error',
-        message: 'terjadi kegagalan pada server kami',
+        status: "error",
+        message: "terjadi kegagalan pada server kami",
       });
       newResponse.code(500);
       return newResponse;
