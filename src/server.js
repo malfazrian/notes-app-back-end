@@ -3,7 +3,6 @@ require("dotenv").config();
 
 const Hapi = require("@hapi/hapi");
 const Jwt = require("@hapi/jwt");
-const path = require("path");
 const Inert = require("@hapi/inert");
 
 // notes
@@ -34,19 +33,15 @@ const ExportsValidator = require("./validator/exports");
 
 // uploads
 const uploads = require("./api/uploads");
-const StorageService = require("./services/storage/StorageService");
+const StorageService = require("./services/S3/StorageService");
 const UploadsValidator = require("./validator/uploads");
-
-const ClientError = require("./exceptions/ClientError");
 
 const init = async () => {
   const collaborationsService = new CollaborationsService();
   const notesService = new NotesService(collaborationsService);
   const usersService = new UsersService();
   const authenticationsService = new AuthenticationsService();
-  const storageService = new StorageService(
-    path.resolve(__dirname, "api/uploads/file/images")
-  );
+  const storageService = new StorageService();
 
   const server = Hapi.server({
     port: process.env.PORT,
@@ -58,6 +53,7 @@ const init = async () => {
     },
   });
 
+  // registrasi plugin eksternal
   await server.register([
     {
       plugin: Jwt,
@@ -67,6 +63,7 @@ const init = async () => {
     },
   ]);
 
+  // mendefinisikan strategy autentikasi jwt
   server.auth.strategy("notesapp_jwt", "jwt", {
     keys: process.env.ACCESS_TOKEN_KEY,
     verify: {
@@ -130,39 +127,6 @@ const init = async () => {
       },
     },
   ]);
-
-  server.ext("onPreResponse", (request, h) => {
-    // mendapatkan konteks response dari request
-    const { response } = request;
-
-    if (response instanceof Error) {
-      // penanganan error secara internal.
-      if (response instanceof ClientError) {
-        const newResponse = h.response({
-          status: "fail",
-          message: response.message,
-        });
-        newResponse.code(response.statusCode);
-        return newResponse;
-      }
-
-      // mempertahankan penanganan client error oleh hapi secara native, seperti 404, etc.
-      if (!response.isServer) {
-        return h.continue;
-      }
-
-      // penanganan error sesuai kebutuhan
-      const newResponse = h.response({
-        status: "error",
-        message: "terjadi kegagalan pada server kami",
-      });
-      newResponse.code(500);
-      return newResponse;
-    }
-
-    // jika bukan error, lanjutkan dengan response sebelumnya (tanpa intervensi)
-    return h.continue;
-  });
 
   await server.start();
   console.log(`Server berjalan pada ${server.info.uri}`);
